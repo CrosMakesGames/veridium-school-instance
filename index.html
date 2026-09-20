@@ -702,15 +702,8 @@ body {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #ff3b3b;
-    box-shadow: 0 0 8px #ff3b3b;
+    background: #8B0000;
     margin-right: 6px;
-    animation: livePulse 1.6s infinite;
-}
-
-@keyframes livePulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.35; }
 }
 
 .match-row.is-live .match-time { color: #ff6b6b; }
@@ -746,10 +739,88 @@ body {
 .nav-logo, .nav-item, .poster-card, .btn-action, .back-link,
 .footer-link, .ad-link { cursor: pointer; }
 
+
+/* ============ Database search bar ============ */
+.db-search {
+    position: relative;
+    margin-top: 24px;
+}
+
+.db-search input {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--line);
+    color: white;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.9rem;
+    letter-spacing: 1px;
+    padding: 14px 18px;
+    outline: none;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.db-search input:focus {
+    border-color: var(--purple);
+    box-shadow: 0 0 18px rgba(var(--purple-rgb), 0.25);
+}
+
+.db-search input::placeholder {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+#db-status { margin-top: 28px; }
+
+/* ============ Section pagers (< >) ============ */
+.section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 26px 0 16px;
+}
+
+.section-head .section-heading { margin: 0; }
+
+.section-pager {
+    display: flex;
+    gap: 8px;
+}
+
+.pager-btn {
+    min-width: 34px;
+    height: 34px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line);
+    background: rgba(0, 0, 0, 0.5);
+    color: white;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95rem;
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.3s ease, color 0.3s ease;
+}
+
+.pager-btn:hover:not(.disabled) {
+    border-color: var(--purple);
+    color: var(--purple-bright);
+}
+
+.pager-btn.disabled {
+    opacity: 0.25;
+    cursor: default;
+}
+
     </style>
     <script>
 window.VERIDIUM_HOST_DATA = {
     // Its your instance - customize it how you want.
+
+    // The site title shown in the navbar. The first letter automatically gets
+    // the accent color. Default is "Veridium".
+    "siteTitle": "Veridium",
 
     // The font the INSTANCE HOST text uses in the footer.
     // "Veridium title font" is the default. 
@@ -772,7 +843,7 @@ window.VERIDIUM_HOST_DATA = {
 
     // Navbar Layout - the buttons that show up in the navbar from left to right. You can rearrange or remove but theser are your options:
     "navbarLayout": [
-        "Popular",
+        "Database",
         "Featured",
     ],
 
@@ -869,12 +940,18 @@ window.VERIDIUM_SERVERS = [
             <div id="hero-home"></div>
 
             <section id="continue-watching-section" class="content-section" style="display:none">
-                <h2 class="section-heading">CONTINUE WATCHING</h2>
+                <div class="section-head">
+                    <h2 class="section-heading">CONTINUE WATCHING</h2>
+                    <div class="section-pager" id="cw-pager"></div>
+                </div>
                 <div id="continue-watching-grid" class="tv-grid"></div>
             </section>
 
             <section id="recommended-section" class="content-section" style="display:none">
-                <h2 class="section-heading">RECOMMENDED</h2>
+                <div class="section-head">
+                    <h2 class="section-heading">RECOMMENDED</h2>
+                    <div class="section-pager" id="rec-pager"></div>
+                </div>
                 <div id="recommended-home-grid" class="tv-grid"></div>
             </section>
 
@@ -884,9 +961,13 @@ window.VERIDIUM_SERVERS = [
             </section>
         </div>
 
-        <div id="view-popular" class="page-view" style="display:none">
-            <h1 class="page-title">Popular</h1>
-            <div id="popular-grid" class="tv-grid"></div>
+        <div id="view-database" class="page-view" style="display:none">
+            <h1 class="page-title">Database</h1>
+            <div class="db-search">
+                <input id="db-search-input" type="text" placeholder="SEARCH ANY SHOW OR MOVIE..." autocomplete="off" spellcheck="false">
+            </div>
+            <h2 class="section-heading" id="db-status">TRENDING</h2>
+            <div id="database-grid" class="tv-grid"></div>
         </div>
 
         <div id="view-featured" class="page-view" style="display:none">
@@ -976,6 +1057,7 @@ function fillTemplate(template, values) {
 }
 
 const HOST_DATA_FALLBACK = {
+    siteTitle: 'Veridium',
     instanceHostFont: 'Veridium title font',
     instanceHostText: 'CrosMakesGames',
     instanceHostClickable: true,
@@ -1035,6 +1117,9 @@ function loadHostData() {
         hostDataPromise = Promise.resolve().then(function () {
             const data = window.VERIDIUM_HOST_DATA || {};
             const merged = {
+                siteTitle: (typeof data.siteTitle === 'string' && data.siteTitle.trim())
+                    ? data.siteTitle.trim()
+                    : HOST_DATA_FALLBACK.siteTitle,
                 instanceHostFont: data.instanceHostFont || HOST_DATA_FALLBACK.instanceHostFont,
                 instanceHostText: data.instanceHostText || HOST_DATA_FALLBACK.instanceHostText,
                 instanceHostClickable: !!data.instanceHostClickable,
@@ -1104,8 +1189,17 @@ function applyFavicon(url) {
     link.href = url;
 }
 
+function applySiteTitle(data) {
+    const title = String((data && data.siteTitle) || 'Veridium').trim() || 'Veridium';
+    document.querySelectorAll('.nav-logo').forEach(function (el) {
+        const caps = title.toUpperCase();
+        el.innerHTML = '<span>' + escapeHtml(caps.charAt(0)) + '</span>' + escapeHtml(caps.slice(1));
+    });
+}
+
 function applyHostData() {
     const data = window.__veridiumHostData || HOST_DATA_FALLBACK;
+    applySiteTitle(data);
     document.querySelectorAll('.instance-host').forEach(function (el) {
         const value = el.querySelector('span');
         if (value) value.textContent = data.instanceHostText;
@@ -1194,6 +1288,33 @@ function renderGrid(container, items) {
     container.innerHTML = items.map(posterCard).join('');
 }
 
+const sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+
+// TMDB details cache: the featured list is static, so after one good load
+// the featured/home views are instant and cost zero API calls (no rate-limit storms).
+const TMDB_CACHE_PREFIX = 'veridium_show_v1:';
+const TMDB_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+
+function readShowCache(id, type) {
+    try {
+        const raw = localStorage.getItem(TMDB_CACHE_PREFIX + type + ':' + id);
+        if (!raw) return null;
+        const entry = JSON.parse(raw);
+        if (!entry || !entry.t || Date.now() - entry.t > TMDB_CACHE_TTL) return null;
+        return entry.d || null;
+    } catch (err) {
+        return null;
+    }
+}
+
+function writeShowCache(id, type, details) {
+    if (!details) return;
+    try {
+        localStorage.setItem(TMDB_CACHE_PREFIX + type + ':' + id,
+            JSON.stringify({ t: Date.now(), d: details }));
+    } catch (err) {}
+}
+
 const ShowService = {
     fetchTrending: async () => {
         const promises = [1, 2, 3].map(page =>
@@ -1207,18 +1328,55 @@ const ShowService = {
     fetchFeatured: async () => {
         const hostData = await loadHostData();
         const list = hostData.featuredShows;
-        const promises = shuffleList(list).map(item => ShowService.getDetails(item.id, item.type));
-        const results = await Promise.all(promises);
+        const shuffled = shuffleList(list);
+
+        const fetchItem = function (item) {
+            return ShowService.getDetails(item.id, item.type).catch(function () { return null; });
+        };
+
+        // Fire in small staggered batches so TMDB's rate limit never trips
+        // (the old code fired every request at once, which could rate-limit
+        // the whole list into an empty page).
+        const results = [];
+        const BATCH_SIZE = 8;
+        for (let i = 0; i < shuffled.length; i += BATCH_SIZE) {
+            if (i > 0) await sleep(60);
+            const chunk = shuffled.slice(i, i + BATCH_SIZE);
+            const chunkResults = await Promise.all(chunk.map(fetchItem));
+            results.push(...chunkResults);
+        }
+
+        // One retry pass for anything that came back empty (hiccup, rate-limit).
+        const missingIndexes = [];
+        results.forEach(function (r, i) { if (!r) missingIndexes.push(i); });
+        if (missingIndexes.length) {
+            await sleep(600);
+            const retried = await Promise.all(missingIndexes.map(function (i) {
+                return fetchItem(shuffled[i]);
+            }));
+            missingIndexes.forEach(function (resultIndex, k) {
+                results[resultIndex] = retried[k];
+            });
+        }
+
         return results.filter(item => item && item.id);
     },
 
     getDetails: async (id, type) => {
-        const res = await fetch(TMDB_BASE + '/' + type + '/' + id + '?api_key=' + TMDB_API_KEY);
-        const data = await res.json();
-        if (!data || data.success === false) return null;
+        const cached = readShowCache(id, type);
+        if (cached) return cached;
+        let data = null;
+        try {
+            const res = await fetch(TMDB_BASE + '/' + type + '/' + id + '?api_key=' + TMDB_API_KEY);
+            if (!res.ok) return null;
+            data = await res.json();
+        } catch (err) {
+            return null;
+        }
+        if (!data || data.success === false || !data.id) return null;
         const year = (data.release_date || data.first_air_date || '').split('-')[0] || '';
         const hasRating = typeof data.vote_average === 'number' && data.vote_average > 0;
-        return {
+        const details = {
             id: data.id,
             type: type,
             tmdbId: data.id,
@@ -1232,6 +1390,8 @@ const ShowService = {
             genres: Array.isArray(data.genres) ? data.genres.map(g => g.id) : [],
             episodes: {}
         };
+        writeShowCache(id, type, details);
+        return details;
     },
 
     getSeasonEpisodes: async (tvId, seasonNumber) => {
@@ -1383,7 +1543,7 @@ const historyStorage = (function () {
         return null;
     }
 })();
-const HISTORY_LIMIT = 7;
+const HISTORY_LIMIT = 28;
 
 function loadHistory() {
     if (!historyStorage) return [];
@@ -1506,9 +1666,11 @@ function renderContinueWatching(container, history) {
             const id = parseInt(btn.getAttribute('data-id'), 10);
             const type = btn.getAttribute('data-type');
             removeWatch(id, type);
-            const card = btn.closest('.cw-card');
-            if (card) card.remove();
-            if (!container.querySelector('.cw-card')) {
+            const list = loadHistory();
+            if (list.length) {
+                renderContinueWatchingSection(list);
+            } else {
+                cwPage = 0;
                 const section = container.closest('.content-section');
                 if (section) section.style.display = 'none';
             }
@@ -1517,6 +1679,41 @@ function renderContinueWatching(container, history) {
 }
 
 // Shared renderer: shows the bar (or a clear warning) on any page that has it.
+const CW_PAGE_SIZE = 7;
+let cwPage = 0;
+const REC_STATE = { items: [], page: 0 };
+
+function renderSectionPager(pagerEl, page, pageCount, nav) {
+    if (!pagerEl) return;
+    pagerEl.innerHTML = '';
+    const mk = function (label, targetPage) {
+        const disabled = targetPage < 0 || targetPage > pageCount - 1;
+        const btn = document.createElement('div');
+        btn.className = 'pager-btn' + (disabled ? ' disabled' : '');
+        btn.setAttribute('role', 'button');
+        btn.setAttribute('tabindex', '0');
+        btn.textContent = label;
+        if (!disabled) {
+            btn.addEventListener('click', function () { nav(targetPage); });
+        }
+        pagerEl.appendChild(btn);
+    };
+    mk('<', page - 1);
+    mk('>', page + 1);
+}
+
+function renderRecommendedSection(items, grid) {
+    const pager = document.getElementById('rec-pager');
+    REC_STATE.items = items;
+    const pageCount = Math.max(1, Math.ceil(items.length / REC_PAGE_SIZE));
+    if (REC_STATE.page > pageCount - 1) REC_STATE.page = pageCount - 1;
+    renderGrid(grid, items.slice(REC_STATE.page * REC_PAGE_SIZE, REC_STATE.page * REC_PAGE_SIZE + REC_PAGE_SIZE));
+    renderSectionPager(pager, REC_STATE.page, pageCount, function (p) {
+        REC_STATE.page = p;
+        renderRecommendedSection(REC_STATE.items, grid);
+    });
+}
+
 function renderContinueWatchingSection(history) {
     const section = document.getElementById('continue-watching-section');
     const grid = document.getElementById('continue-watching-grid');
@@ -1526,9 +1723,16 @@ function renderContinueWatchingSection(history) {
         grid.innerHTML = '<div class="ad-warning">Continue Watching is unavailable - this browser is blocking site storage.</div>';
         return;
     }
-    if (!history.length) return;
+    const pager = document.getElementById('cw-pager');
+    if (!history.length) { cwPage = 0; if (pager) pager.innerHTML = ''; return; }
     section.style.display = '';
-    renderContinueWatching(grid, history);
+    const pageCount = Math.max(1, Math.ceil(history.length / CW_PAGE_SIZE));
+    if (cwPage > pageCount - 1) cwPage = pageCount - 1;
+    renderContinueWatching(grid, history.slice(cwPage * CW_PAGE_SIZE, cwPage * CW_PAGE_SIZE + CW_PAGE_SIZE));
+    renderSectionPager(pager, cwPage, pageCount, function (p) {
+        cwPage = p;
+        renderContinueWatchingSection(loadHistory());
+    });
 }
 
 const TV_ONLY_GENRE_IDS = [10759, 10762, 10763, 10764, 10765, 10766, 10767, 10768];
@@ -1570,50 +1774,82 @@ async function backfillHistoryGenres(history) {
     return loadHistory();
 }
 
+const REC_PAGE_SIZE = 7;
+
 async function fetchHomeRecommended(history) {
     history = await backfillHistoryGenres(history);
-    const counts = {};
-    history.forEach(e => (e.genres || []).forEach(g => { counts[g] = (counts[g] || 0) + 1; }));
-    const topGenres = Object.keys(counts)
+    if (!history.length) return [];
+
+    // Genre weights: how often you watch a genre, with a recency bonus -
+    // what you watched most recently counts the most (history is newest-first).
+    const weights = {};
+    history.forEach(function (e, i) {
+        const recency = history.length - i;
+        (e.genres || []).forEach(function (g) {
+            weights[g] = (weights[g] || 0) + recency;
+        });
+    });
+    const topGenres = Object.keys(weights)
         .map(Number)
-        .sort((a, b) => counts[b] - counts[a])
-        .slice(0, 2);
+        .sort((a, b) => weights[b] - weights[a])
+        .slice(0, 3);
+
     const watched = new Set(history.map(e => e.type + ':' + e.id));
     const pool = [];
-    const push = function (item) {
-        if (!item) return;
-        if (watched.has(item.type + ':' + item.id)) return;
-        if (pool.some(p => p.id === item.id && p.type === item.type)) return;
-        pool.push(item);
+    const push = function (raw, type, score) {
+        if (!raw || !raw.id) return;
+        if (watched.has(type + ':' + raw.id)) return;
+        if (pool.some(p => p.item.id === raw.id && p.item.type === type)) return;
+        pool.push({
+            item: normalizeTMDB(Object.assign({}, raw, { media_type: type })),
+            score: score,
+            pop: raw.popularity || 0
+        });
     };
+
     const requests = [];
-    const requestTypes = [];
+    const requestMeta = [];
     ['tv', 'movie'].forEach(function (t) {
         const genreList = genresForType(topGenres, t);
         if (!genreList.length) return;
-        requestTypes.push(t);
-        requests.push(
-            fetch(TMDB_BASE + '/discover/' + t + '?api_key=' + TMDB_API_KEY +
-                    '&sort_by=popularity.desc&with_genres=' + genreList.join('|') +
-                    '&vote_count.gte=50&page=1')
-                .then(r => r.json())
-                .catch(function () { return {}; })
-        );
+        [1, 2].forEach(function (page) {
+            requestMeta.push(t);
+            requests.push(
+                fetch(TMDB_BASE + '/discover/' + t + '?api_key=' + TMDB_API_KEY +
+                        '&sort_by=popularity.desc&with_genres=' + genreList.join('|') +
+                        '&vote_count.gte=100&vote_average.gte=6&page=' + page)
+                    .then(r => r.json())
+                    .catch(function () { return {}; })
+            );
+        });
     });
     const results = await Promise.all(requests);
     results.forEach(function (res, idx) {
-        const type = requestTypes[idx];
+        const type = requestMeta[idx];
         (res.results || []).forEach(function (raw) {
-            push(normalizeTMDB(Object.assign({}, raw, { media_type: type })));
+            // Score by how strongly it matches the user's top genres.
+            const score = (raw.genre_ids || []).reduce(function (sum, g) {
+                return sum + (weights[g] || 0);
+            }, 0);
+            push(raw, type, score);
         });
     });
-    if (pool.length < 7) {
+
+    // Rank: strongest genre match first, popularity breaks ties.
+    pool.sort(function (a, b) { return (b.score - a.score) || (b.pop - a.pop); });
+
+    // Thin taste match: top up with trending so paging has content.
+    if (pool.length < REC_PAGE_SIZE * 2) {
         try {
             const trending = await ShowService.fetchTrending();
-            trending.forEach(push);
+            trending.forEach(function (item) {
+                if (pool.some(p => p.item.id === item.id && p.item.type === item.type)) return;
+                pool.push({ item: item, score: 0, pop: 0 });
+            });
         } catch (err) { }
     }
-    return shuffleList(pool).slice(0, 7);
+
+    return pool.slice(0, 28).map(function (p) { return p.item; });
 }
 
 async function initHome() {
@@ -1630,7 +1866,7 @@ async function initHome() {
             const picks = await fetchHomeRecommended(history);
             if (picks.length) {
                 recSection.style.display = '';
-                renderGrid(recGrid, picks);
+                renderRecommendedSection(picks, recGrid);
             }
         }
         const featured = await ShowService.fetchFeatured();
@@ -1638,7 +1874,10 @@ async function initHome() {
         if (heroContainer && featured.length) {
             renderHero(heroContainer, featured[Math.floor(Math.random() * featured.length)]);
         }
-        if (featuredGrid) renderGrid(featuredGrid, featured);
+        if (featuredGrid) {
+            if (featured.length) renderGrid(featuredGrid, featured);
+            else featuredGrid.innerHTML = '<div class="ad-warning">Failed to load content. Refresh the page.</div>';
+        }
     } catch (err) {
         if (featuredGrid) {
             featuredGrid.innerHTML = '<div class="ad-warning">Failed to load content. Refresh the page.</div>';
@@ -1665,16 +1904,79 @@ function renderHero(container, show) {
         '</div>';
 }
 
-async function initPopular() {
-    const grid = document.getElementById('popular-grid');
-    if (!grid) return;
-    grid.innerHTML = '<div class="ad-warning">LOADING...</div>';
+// ============ DATABASE (searchable catalog) ============
+
+let dbTrendingCache = null;
+let dbSearchTimer = null;
+let dbSearchWired = false;
+
+async function dbShowTrending(grid, status) {
+    if (status) status.textContent = 'TRENDING';
     try {
-        const items = await ShowService.fetchTrending();
-        renderGrid(grid, items);
+        if (!dbTrendingCache) dbTrendingCache = await ShowService.fetchTrending();
+        if (grid) renderGrid(grid, dbTrendingCache);
     } catch (err) {
-        grid.innerHTML = '<div class="ad-warning">Failed to load content. Refresh the page.</div>';
+        if (grid) grid.innerHTML = '<div class="ad-warning">Failed to load content. Refresh the page.</div>';
     }
+}
+
+function dbSearch(query) {
+    const url = TMDB_BASE + '/search/multi?api_key=' + TMDB_API_KEY +
+        '&include_adult=false&query=' + encodeURIComponent(query);
+    return fetch(url).then(function (res) { return res.json(); }).then(function (data) {
+        return (data.results || [])
+            .map(normalizeTMDB)
+            .filter(function (i) { return i !== null && i.title; })
+            .slice(0, 40);
+    });
+}
+
+async function dbRunSearch(q, grid, status) {
+    if (status) status.textContent = 'SEARCHING...';
+    try {
+        const results = await dbSearch(q);
+        const input = document.getElementById('db-search-input');
+        if (input && input.value.trim() !== q) return; // stale response, user kept typing
+        if (status) status.textContent = 'RESULTS FOR "' + q.toUpperCase() + '"';
+        if (results.length) renderGrid(grid, results);
+        else grid.innerHTML = '<div class="ad-warning">NO RESULTS FOUND FOR "' + escapeHtml(q) + '".</div>';
+    } catch (err) {
+        if (status) status.textContent = 'SEARCH FAILED';
+        grid.innerHTML = '<div class="ad-warning">Search failed. Try again.</div>';
+    }
+}
+
+async function initDatabase() {
+    const grid = document.getElementById('database-grid');
+    const input = document.getElementById('db-search-input');
+    const status = document.getElementById('db-status');
+    if (!grid) return;
+
+    // Wire the search bar once; returning to the view keeps your query.
+    if (!dbSearchWired && input) {
+        dbSearchWired = true;
+        input.addEventListener('input', function () {
+            const q = input.value.trim();
+            clearTimeout(dbSearchTimer);
+            if (!q) {
+                dbSearchTimer = setTimeout(function () {
+                    if (!input.value.trim()) dbShowTrending(grid, status);
+                }, 250);
+                return;
+            }
+            dbSearchTimer = setTimeout(function () { dbRunSearch(q, grid, status); }, 400);
+        });
+        input.addEventListener('keydown', function (e) {
+            const q = input.value.trim();
+            if (e.key === 'Enter' && q) {
+                clearTimeout(dbSearchTimer);
+                dbRunSearch(q, grid, status);
+            }
+        });
+    }
+
+    if (input && input.value.trim()) return;
+    await dbShowTrending(grid, status);
 }
 
 async function initFeatured() {
@@ -1683,7 +1985,11 @@ async function initFeatured() {
     if (!grid) return;
     try {
         const items = await ShowService.fetchFeatured();
-        if (heroContainer && items.length) {
+        if (!items.length) {
+            grid.innerHTML = '<div class="ad-warning">Failed to load content. Refresh the page.</div>';
+            return;
+        }
+        if (heroContainer) {
             const hero = items[Math.floor(Math.random() * items.length)];
             renderHero(heroContainer, hero);
         }
@@ -1971,10 +2277,10 @@ function initParticles() {
 // All former pages live in the same document as .page-view containers.
 // Navigation swaps the visible view in place of loading a new page.
 
-const PAGE_VIEWS = ['home', 'popular', 'featured', 'show', 'livesports'];
+const PAGE_VIEWS = ['home', 'database', 'featured', 'show', 'livesports'];
 const PAGE_TITLES = {
     home: 'Veridium',
-    popular: 'Popular - Veridium',
+    database: 'Database - Veridium',
     featured: 'Featured - Veridium',
     show: 'Player - Veridium',
     livesports: 'Live Sports - Veridium'
@@ -1991,7 +2297,7 @@ function showView(name) {
     renderNavbar();
     window.scrollTo(0, 0);
     if (name === 'home') initHome();
-    else if (name === 'popular') initPopular();
+    else if (name === 'database') initDatabase();
     else if (name === 'featured') initFeatured();
     else if (name === 'livesports') initLiveSports();
 }
@@ -2075,11 +2381,13 @@ window.addEventListener('pageshow', function (event) {
 // ============ NAVBAR (bubble layout, driven by instance-host-data.js) ============
 
 const NAV_ITEMS = {
-    'Popular': { page: 'popular' },
+    'Database': { page: 'database' },
     'Featured': { page: 'featured' },
     'Live Sports': { page: 'livesports' }
 };
-const NAV_DEFAULT_LAYOUT = ['Popular', 'Featured', 'Live Sports'];
+// Old instances that still list "Popular" get the Database view instead.
+const NAV_ALIASES = { 'Popular': 'Database' };
+const NAV_DEFAULT_LAYOUT = ['Database', 'Featured', 'Live Sports'];
 
 function renderNavbar() {
     const navRight = document.getElementById('nav-right');
@@ -2087,9 +2395,12 @@ function renderNavbar() {
     const raw = (window.VERIDIUM_HOST_DATA && Array.isArray(window.VERIDIUM_HOST_DATA.navbarLayout))
         ? window.VERIDIUM_HOST_DATA.navbarLayout
         : NAV_DEFAULT_LAYOUT;
-    const layout = raw.filter(function (name) {
-        return typeof name === 'string' && Object.prototype.hasOwnProperty.call(NAV_ITEMS, name.trim());
-    }).map(function (name) { return name.trim(); });
+    const layout = raw.map(function (name) {
+        const trimmed = typeof name === 'string' ? name.trim() : '';
+        return NAV_ALIASES[trimmed] || trimmed;
+    }).filter(function (name) {
+        return Object.prototype.hasOwnProperty.call(NAV_ITEMS, name);
+    });
 
     const currentPage = document.body.getAttribute('data-page');
     navRight.innerHTML = '';
@@ -2184,8 +2495,6 @@ function renderLiveSportsPage() {
         }).join('');
 
     root.innerHTML =
-        '<div class="back-link" data-go-home role="button" tabindex="0">&lt; BACK</div>' +
-
         '<div class="ad-warning" style="margin-top:0;">' +
             'Live sports streams are embedded from outside sources and may include ads. ' +
             'Use an ad blocker for the best experience. ' +
