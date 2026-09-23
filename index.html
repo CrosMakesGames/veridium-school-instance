@@ -813,6 +813,18 @@ body {
     cursor: default;
 }
 
+
+/* Database cards without TMDB art (or with a broken image) show the title and year. */
+.db-poster-card { aspect-ratio: 2 / 3; }
+.db-poster-card img { position: relative; z-index: 1; height: 100%; aspect-ratio: auto; }
+.db-poster-missing {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    justify-content: center; align-items: center; gap: 10px; padding: 12px;
+    text-align: center; overflow-wrap: anywhere; color: var(--purple-neon);
+    font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
+}
+.db-poster-missing small { color: var(--text-grey); font-size: 0.75rem; }
+
     </style>
     <script>
 window.VERIDIUM_HOST_DATA = {
@@ -821,6 +833,11 @@ window.VERIDIUM_HOST_DATA = {
     // The site title shown in the navbar. The first letter automatically gets
     // the accent color. Default is "Veridium".
     "siteTitle": "Veridium",
+
+    // Set true to pin the top featured poster/hero on Home and Featured.
+    // Use a TMDB movie or TV ID; false keeps it random.
+    "useCustomTopPoster": false,
+    "topPoster": { "id": 1434, "type": "tv" },
 
     // The font the INSTANCE HOST text uses in the footer.
     // "Veridium title font" is the default. 
@@ -1058,6 +1075,8 @@ function fillTemplate(template, values) {
 
 const HOST_DATA_FALLBACK = {
     siteTitle: 'Veridium',
+    useCustomTopPoster: false,
+    topPoster: { id: 1434, type: 'tv' },
     instanceHostFont: 'Veridium title font',
     instanceHostText: 'CrosMakesGames',
     instanceHostClickable: true,
@@ -1120,6 +1139,8 @@ function loadHostData() {
                 siteTitle: (typeof data.siteTitle === 'string' && data.siteTitle.trim())
                     ? data.siteTitle.trim()
                     : HOST_DATA_FALLBACK.siteTitle,
+                useCustomTopPoster: data.useCustomTopPoster === true,
+                topPoster: data.topPoster || null,
                 instanceHostFont: data.instanceHostFont || HOST_DATA_FALLBACK.instanceHostFont,
                 instanceHostText: data.instanceHostText || HOST_DATA_FALLBACK.instanceHostText,
                 instanceHostClickable: !!data.instanceHostClickable,
@@ -1280,6 +1301,20 @@ function posterCard(item) {
         '</div>';
 }
 
+function databasePosterCard(item) {
+    return '<div class="poster-card db-poster-card"' + showCardAttrs(item.id, item.type) + ' role="button" tabindex="0" aria-label="' + escapeHtml(item.title + (item.year ? ' (' + item.year + ')' : '')) + '">' +
+        '<div class="db-poster-missing"><strong>' + escapeHtml(item.title || 'Untitled') + '</strong>' +
+            (item.year ? '<small>' + escapeHtml(item.year) + '</small>' : '') + '</div>' +
+        (item.poster && item.poster !== POSTER_FALLBACK
+            ? '<img src="' + escapeHtml(item.poster) + '" loading="lazy" alt="" onerror="this.onerror=null;this.style.display=&quot;none&quot;;">'
+            : '') +
+        '</div>';
+}
+
+function renderDatabaseGrid(container, items) {
+    container.innerHTML = items.map(databasePosterCard).join('');
+}
+
 function renderStrip(container, items) {
     container.innerHTML = items.map(posterCard).join('');
 }
@@ -1292,7 +1327,7 @@ const sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms
 
 // TMDB details cache: the featured list is static, so after one good load
 // the featured/home views are instant and cost zero API calls (no rate-limit storms).
-const TMDB_CACHE_PREFIX = 'veridium_show_v1:';
+const TMDB_CACHE_PREFIX = 'veridium_show_v2:';
 const TMDB_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 
 function readShowCache(id, type) {
@@ -1322,7 +1357,15 @@ const ShowService = {
         );
         const results = await Promise.all(promises);
         const combined = results.flatMap(res => res.results || []);
-        return combined.map(normalizeTMDB).filter(i => i !== null).slice(0, 49);
+        const seenIds = new Set(), seenPosters = new Set();
+        return combined.map(normalizeTMDB).filter(function (item) {
+            if (!item || !item.id) return false;
+            const key = item.type + ':' + item.id;
+            if (seenIds.has(key) || (item.poster !== POSTER_FALLBACK && seenPosters.has(item.poster))) return false;
+            seenIds.add(key);
+            if (item.poster !== POSTER_FALLBACK) seenPosters.add(item.poster);
+            return true;
+        }).slice(0, 50);
     },
 
     fetchFeatured: async () => {
@@ -1367,7 +1410,7 @@ const ShowService = {
         if (cached) return cached;
         let data = null;
         try {
-            const res = await fetch(TMDB_BASE + '/' + type + '/' + id + '?api_key=' + TMDB_API_KEY);
+            const res = await fetch(TMDB_BASE + '/' + type + '/' + id + '?api_key=' + TMDB_API_KEY + '&append_to_response=credits,keywords');
             if (!res.ok) return null;
             data = await res.json();
         } catch (err) {
@@ -1388,6 +1431,12 @@ const ShowService = {
             backdrop: data.backdrop_path ? IMG_ORIGINAL + data.backdrop_path : POSTER_FALLBACK,
             totalSeasons: data.number_of_seasons || 1,
             genres: Array.isArray(data.genres) ? data.genres.map(g => g.id) : [],
+            // TMDB movie keywords live in .keywords, TV keywords in .results.
+            keywords: (data.keywords && (data.keywords.keywords || data.keywords.results) || []).map(function (k) { return k.id; }).filter(Boolean),
+            writers: (data.credits && data.credits.crew || []).filter(function (p) {
+                return p.department === 'Writing' || /^(Writer|Screenplay|Story|Creator)$/.test(p.job || '');
+            }).map(function (p) { return p.id; }).concat((data.created_by || []).map(function (p) { return p.id; })).filter(Boolean)
+                .filter(function (id, i, list) { return list.indexOf(id) === i; }).slice(0, 16),
             episodes: {}
         };
         writeShowCache(id, type, details);
@@ -1566,6 +1615,8 @@ function loadHistory() {
                     genres: Array.isArray(e.genres)
                         ? e.genres.map(function (g) { return Number(g); }).filter(function (g) { return g > 0; })
                         : [],
+                    keywords: Array.isArray(e.keywords) ? e.keywords.map(Number).filter(function (v) { return v > 0; }).slice(0, 20) : [],
+                    writers: Array.isArray(e.writers) ? e.writers.map(Number).filter(function (v) { return v > 0; }).slice(0, 16) : [],
                     season: isTv ? (Number(e.season) || null) : null,
                     episode: isTv ? (Number(e.episode) || null) : null,
                     ts: Number(e.ts) || 0
@@ -1617,6 +1668,8 @@ function recordWatch(show, season, episode) {
         genres: (Array.isArray(show.genres) && show.genres.length)
             ? show.genres.slice()
             : (existing ? existing.genres : []),
+        keywords: (Array.isArray(show.keywords) && show.keywords.length) ? show.keywords.slice(0, 20) : (existing ? existing.keywords : []),
+        writers: (Array.isArray(show.writers) && show.writers.length) ? show.writers.slice(0, 16) : (existing ? existing.writers : []),
         season: finalSeason,
         episode: finalEpisode,
         ts: Date.now()
@@ -1746,20 +1799,31 @@ function genresForType(genreIds, type) {
 }
 
 async function backfillHistoryGenres(history) {
-    const missing = history.filter(function (e) { return !e.genres || !e.genres.length; });
+    const missing = history.filter(function (e) {
+        return !e.genres.length || !e.keywords.length || !e.writers.length;
+    });
     if (!missing.length) return history;
-    const details = await Promise.all(missing.map(function (e) {
-        return ShowService.getDetails(e.id, e.type).catch(function () { return null; });
-    }));
+    const details = [];
+    for (let i = 0; i < missing.length; i += 5) {
+        if (i) await sleep(80);
+        const batch = await Promise.all(missing.slice(i, i + 5).map(function (e) {
+            return ShowService.getDetails(e.id, e.type).catch(function () { return null; });
+        }));
+        details.push(...batch);
+    }
     const list = loadHistory();
     let changed = false;
     details.forEach(function (d, i) {
         const target = missing[i];
         const entry = list.find(function (x) { return x.id === target.id && x.type === target.type; });
         if (!entry) return;
-        if (d && Array.isArray(d.genres) && d.genres.length) {
-            entry.genres = d.genres.slice();
-            changed = true;
+        if (d) {
+            ['genres', 'keywords', 'writers'].forEach(function (field) {
+                if (Array.isArray(d[field]) && d[field].length && JSON.stringify(entry[field]) !== JSON.stringify(d[field])) {
+                    entry[field] = d[field].slice();
+                    changed = true;
+                }
+            });
         }
         if ((!entry.poster || entry.poster === POSTER_FALLBACK) && d && d.poster) {
             entry.poster = d.poster;
@@ -1776,80 +1840,107 @@ async function backfillHistoryGenres(history) {
 
 const REC_PAGE_SIZE = 7;
 
+let recommendationMemo = { key: '', items: null, until: 0 };
 async function fetchHomeRecommended(history) {
-    history = await backfillHistoryGenres(history);
     if (!history.length) return [];
-
-    // Genre weights: how often you watch a genre, with a recency bonus -
-    // what you watched most recently counts the most (history is newest-first).
-    const weights = {};
-    history.forEach(function (e, i) {
-        const recency = history.length - i;
-        (e.genres || []).forEach(function (g) {
-            weights[g] = (weights[g] || 0) + recency;
+    // A short-lived session cache prevents repeated discover bursts when switching views.
+    const memoKey = JSON.stringify(history.map(function (e) { return [e.type, e.id, e.ts, e.genres, e.keywords, e.writers]; }));
+    if (recommendationMemo.key === memoKey && recommendationMemo.items && Date.now() < recommendationMemo.until) {
+        return recommendationMemo.items;
+    }
+    // Aggregate signals across all watched titles. Recent watches contribute more.
+    const weights = { genres: {}, keywords: {}, writers: {} };
+    history.forEach(function (entry, index) {
+        const recency = 0.35 + 0.65 * (history.length - index) / history.length;
+        ['genres', 'keywords', 'writers'].forEach(function (field) {
+            (entry[field] || []).forEach(function (id) {
+                weights[field][id] = (weights[field][id] || 0) + recency;
+            });
         });
     });
-    const topGenres = Object.keys(weights)
-        .map(Number)
-        .sort((a, b) => weights[b] - weights[a])
-        .slice(0, 3);
-
-    const watched = new Set(history.map(e => e.type + ':' + e.id));
-    const pool = [];
-    const push = function (raw, type, score) {
-        if (!raw || !raw.id) return;
-        if (watched.has(type + ':' + raw.id)) return;
-        if (pool.some(p => p.item.id === raw.id && p.item.type === type)) return;
-        pool.push({
-            item: normalizeTMDB(Object.assign({}, raw, { media_type: type })),
-            score: score,
-            pop: raw.popularity || 0
-        });
-    };
-
+    function top(field, count) {
+        return Object.keys(weights[field]).sort(function (a, b) {
+            return weights[field][b] - weights[field][a];
+        }).slice(0, count).map(Number);
+    }
+    const topGenres = top('genres', 3);
+    const topKeywords = top('keywords', 2);
+    const watched = new Set(history.map(function (e) { return e.type + ':' + e.id; }));
+    const pool = new Map();
+    function add(raw, type) {
+        if (!raw || !raw.id || watched.has(type + ':' + raw.id)) return;
+        const key = type + ':' + raw.id;
+        if (!pool.has(key)) pool.set(key, { raw: raw, type: type });
+    }
     const requests = [];
-    const requestMeta = [];
-    ['tv', 'movie'].forEach(function (t) {
-        const genreList = genresForType(topGenres, t);
-        if (!genreList.length) return;
-        [1, 2].forEach(function (page) {
-            requestMeta.push(t);
-            requests.push(
-                fetch(TMDB_BASE + '/discover/' + t + '?api_key=' + TMDB_API_KEY +
-                        '&sort_by=popularity.desc&with_genres=' + genreList.join('|') +
-                        '&vote_count.gte=100&vote_average.gte=6&page=' + page)
-                    .then(r => r.json())
-                    .catch(function () { return {}; })
-            );
+    ['tv', 'movie'].forEach(function (type) {
+        const genres = genresForType(topGenres, type);
+        const filters = [];
+        if (genres.length) filters.push('&with_genres=' + genres.join('|'));
+        if (topKeywords.length) filters.push('&with_keywords=' + topKeywords.join('|'));
+        filters.forEach(function (filter) {
+            [1, 2].forEach(function (page) {
+                requests.push(fetch(TMDB_BASE + '/discover/' + type + '?api_key=' + TMDB_API_KEY +
+                    '&sort_by=popularity.desc&vote_count.gte=100&vote_average.gte=6&page=' + page + filter)
+                    .then(function (r) { if (!r.ok) throw new Error('Discover failed'); return r.json(); })
+                    .then(function (res) { (res.results || []).forEach(function (raw) { add(raw, type); }); })
+                    .catch(function () {}));
+            });
         });
     });
-    const results = await Promise.all(requests);
-    results.forEach(function (res, idx) {
-        const type = requestMeta[idx];
-        (res.results || []).forEach(function (raw) {
-            // Score by how strongly it matches the user's top genres.
-            const score = (raw.genre_ids || []).reduce(function (sum, g) {
-                return sum + (weights[g] || 0);
-            }, 0);
-            push(raw, type, score);
-        });
-    });
-
-    // Rank: strongest genre match first, popularity breaks ties.
-    pool.sort(function (a, b) { return (b.score - a.score) || (b.pop - a.pop); });
-
-    // Thin taste match: top up with trending so paging has content.
-    if (pool.length < REC_PAGE_SIZE * 2) {
+    await Promise.all(requests);
+    if (pool.size < REC_PAGE_SIZE * 4) {
         try {
             const trending = await ShowService.fetchTrending();
-            trending.forEach(function (item) {
-                if (pool.some(p => p.item.id === item.id && p.item.type === item.type)) return;
-                pool.push({ item: item, score: 0, pop: 0 });
-            });
-        } catch (err) { }
+            trending.forEach(function (item) { add(item, item.type); });
+        } catch (err) {}
     }
+    // Pre-rank by genre and popularity, then enrich a bounded shortlist with
+    // full TMDB details so keyword/theme and writer matches actually count.
+    function overlap(ids, field) {
+        return (ids || []).reduce(function (sum, id) { return sum + (weights[field][id] || 0); }, 0);
+    }
+    const shortlist = Array.from(pool.values()).sort(function (a, b) {
+        const aScore = overlap(a.raw.genre_ids, 'genres') * 2 + (a.raw.popularity || 0) * 0.005;
+        const bScore = overlap(b.raw.genre_ids, 'genres') * 2 + (b.raw.popularity || 0) * 0.005;
+        return bScore - aScore;
+    }).slice(0, 40);
+    const ranked = [];
+    for (let i = 0; i < shortlist.length; i += 5) {
+        if (i) await sleep(80);
+        const batch = await Promise.all(shortlist.slice(i, i + 5).map(async function (candidate) {
+            const raw = candidate.raw;
+            const details = await ShowService.getDetails(raw.id, candidate.type).catch(function () { return null; });
+            const genres = details ? details.genres : (raw.genre_ids || []);
+            const score = overlap(genres, 'genres') * 2 +
+                overlap(details && details.keywords, 'keywords') * 3 +
+                overlap(details && details.writers, 'writers') * 4;
+            const item = raw.poster && raw.title && raw.type ? raw : normalizeTMDB(Object.assign({}, raw, { media_type: candidate.type }));
+            if (!item) return null;
+            return { item: item, score: score, popularity: raw.popularity || 0 };
+        }));
+        ranked.push(...batch.filter(Boolean));
+    }
+    ranked.sort(function (a, b) { return (b.score - a.score) || (b.popularity - a.popularity); });
+    const picks = ranked.slice(0, 28).map(function (entry) { return entry.item; });
+    if (picks.length) recommendationMemo = { key: memoKey, items: picks, until: Date.now() + 20 * 60 * 1000 };
+    return picks;
+}
 
-    return pool.slice(0, 28).map(function (p) { return p.item; });
+async function chooseTopPoster(featured) {
+    const config = await loadHostData();
+    if (config.useCustomTopPoster && config.topPoster &&
+        ['tv', 'movie'].indexOf(config.topPoster.type) !== -1 &&
+        Number.isSafeInteger(Number(config.topPoster.id)) && Number(config.topPoster.id) > 0) {
+        const id = Number(config.topPoster.id);
+        const existing = featured.find(function (item) {
+            return item.id === id && item.type === config.topPoster.type;
+        });
+        if (existing) return existing;
+        const selected = await ShowService.getDetails(id, config.topPoster.type).catch(function () { return null; });
+        if (selected) return selected;
+    }
+    return featured.length ? featured[Math.floor(Math.random() * featured.length)] : null;
 }
 
 async function initHome() {
@@ -1872,7 +1963,7 @@ async function initHome() {
         const featured = await ShowService.fetchFeatured();
         const heroContainer = document.getElementById('hero-home');
         if (heroContainer && featured.length) {
-            renderHero(heroContainer, featured[Math.floor(Math.random() * featured.length)]);
+            renderHero(heroContainer, await chooseTopPoster(featured));
         }
         if (featuredGrid) {
             if (featured.length) renderGrid(featuredGrid, featured);
@@ -1898,7 +1989,7 @@ function renderHero(container, show) {
                 '<div class="hero-tag">FEATURED ' + (show.type === 'movie' ? 'MOVIE' : 'TV SHOW') + '</div>' +
                 '<h1 class="hero-title">' + escapeHtml(show.title) + '</h1>' +
                 (metaBits.length ? '<div class="hero-meta">' + metaBits.join('<span>|</span>') + '</div>' : '') +
-                '<p class="hero-desc">' + escapeHtml(show.summary ? show.summary.substring(0, 200) + '...' : '') + '</p>' +
+                '<p class="hero-desc">' + escapeHtml((show.summary || show.description) ? (show.summary || show.description).substring(0, 200) + '...' : '') + '</p>' +
                 '<div class="btn-action"' + showCardAttrs(show.id, show.type) + ' role="button" tabindex="0">WATCH NOW</div>' +
             '</div>' +
         '</div>';
@@ -1908,22 +1999,24 @@ function renderHero(container, show) {
 
 let dbTrendingCache = null;
 let dbSearchTimer = null;
+let dbSearchVersion = 0;
 let dbSearchWired = false;
 
 async function dbShowTrending(grid, status) {
+    const version = ++dbSearchVersion;
     if (status) status.textContent = 'TRENDING';
     try {
         if (!dbTrendingCache) dbTrendingCache = await ShowService.fetchTrending();
-        if (grid) renderGrid(grid, dbTrendingCache);
+        if (grid && version === dbSearchVersion) renderDatabaseGrid(grid, dbTrendingCache);
     } catch (err) {
-        if (grid) grid.innerHTML = '<div class="ad-warning">Failed to load content. Refresh the page.</div>';
+        if (grid && version === dbSearchVersion) grid.innerHTML = '<div class="ad-warning">Failed to load content. Refresh the page.</div>';
     }
 }
 
 function dbSearch(query) {
     const url = TMDB_BASE + '/search/multi?api_key=' + TMDB_API_KEY +
         '&include_adult=false&query=' + encodeURIComponent(query);
-    return fetch(url).then(function (res) { return res.json(); }).then(function (data) {
+    return fetch(url).then(function (res) { if (!res.ok) throw new Error('Search failed'); return res.json(); }).then(function (data) {
         return (data.results || [])
             .map(normalizeTMDB)
             .filter(function (i) { return i !== null && i.title; })
@@ -1932,15 +2025,17 @@ function dbSearch(query) {
 }
 
 async function dbRunSearch(q, grid, status) {
+    const version = ++dbSearchVersion;
     if (status) status.textContent = 'SEARCHING...';
     try {
         const results = await dbSearch(q);
         const input = document.getElementById('db-search-input');
-        if (input && input.value.trim() !== q) return; // stale response, user kept typing
+        if (version !== dbSearchVersion || (input && input.value.trim() !== q)) return; // stale response, user kept typing
         if (status) status.textContent = 'RESULTS FOR "' + q.toUpperCase() + '"';
-        if (results.length) renderGrid(grid, results);
+        if (results.length) renderDatabaseGrid(grid, results);
         else grid.innerHTML = '<div class="ad-warning">NO RESULTS FOUND FOR "' + escapeHtml(q) + '".</div>';
     } catch (err) {
+        if (version !== dbSearchVersion) return;
         if (status) status.textContent = 'SEARCH FAILED';
         grid.innerHTML = '<div class="ad-warning">Search failed. Try again.</div>';
     }
@@ -1964,7 +2059,9 @@ async function initDatabase() {
                 }, 250);
                 return;
             }
-            dbSearchTimer = setTimeout(function () { dbRunSearch(q, grid, status); }, 400);
+            dbSearchVersion++;
+        if (status) status.textContent = 'SEARCHING...';
+        dbSearchTimer = setTimeout(function () { dbRunSearch(q, grid, status); }, 170);
         });
         input.addEventListener('keydown', function (e) {
             const q = input.value.trim();
@@ -1990,7 +2087,7 @@ async function initFeatured() {
             return;
         }
         if (heroContainer) {
-            const hero = items[Math.floor(Math.random() * items.length)];
+            const hero = await chooseTopPoster(items);
             renderHero(heroContainer, hero);
         }
         renderGrid(grid, items);
